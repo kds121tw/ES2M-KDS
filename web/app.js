@@ -2,6 +2,7 @@ import {SessionRecorder} from './session_recorder.js';
 import {PlayerStateObserver} from './player_state.js';
 import {Automation,setupAutomationUI} from './automation.js';
 import {setupChatWindow} from './chat_window.js';
+import {bgTimeout,clearBg,keepPageAlive} from './bg_timer.js';
 
 const sessionRecorder = new SessionRecorder();
 const observer = new PlayerStateObserver();
@@ -78,15 +79,38 @@ const bgColors = {40:'#090b0a',41:'#532020',42:'#1d4d2e',43:'#4e4219',44:'#1c315
 
 const contextTitle=document.getElementById('contextTitle');
 const contextBody=document.getElementById('contextBody');
-let contextState={room:'',people:[],items:[],combat:null,inventory:[]};
-let contextRoomScan=false;
-let chatParseBuffer='';
-// 聊天視窗（左側「聊天」開關）。頻道：閒聊、謠言、密語（tell/reply）、對談（say），
-// 其他頻道（系統、巫師、隊伍、幫派…）只在「全部」裡出現。
 const chatWindow=setupChatWindow({
   root:document.getElementById('chatWindow'),
   openButton:document.querySelector('[data-ui-chat]'),
 });
+let contextState={room:'',people:[],items:[],combat:null,inventory:[]};
+let contextRoomScan=false;
+let chatView='chat';
+let chatParseBuffer='';
+const chatMessages={chat:[],tell:[]};
+const CHAT_LOG_LIMIT=200;
+const contextChatLog=document.getElementById('contextChatLog');
+function renderChatLog(){
+  if(!contextChatLog)return;
+  const rows=chatMessages[chatView]||[];
+  contextChatLog.innerHTML=rows.length
+    ? rows.map(x=>`<div class="context-chat-message ${chatView==='tell'?'is-tell':'is-chat'}">${x.html}</div>`).join('')
+    : `<div class="context-chat-empty">尚無 ${chatView.toUpperCase()} 訊息。</div>`;
+  contextChatLog.scrollTop=contextChatLog.scrollHeight;
+}
+function setupChatTabs(){
+  for(const btn of document.querySelectorAll('.context-chat-tab[data-chat-tab]')){
+    btn.addEventListener('click',()=>{
+      chatView=btn.dataset.chatTab==='tell'?'tell':'chat';
+      for(const x of document.querySelectorAll('.context-chat-tab[data-chat-tab]')){
+        const on=x.dataset.chatTab===chatView;
+        x.classList.toggle('active',on);
+        x.setAttribute('aria-selected',on?'true':'false');
+      }
+      renderChatLog();
+    });
+  }
+}
 function extractChatMessage(plain){
   let text=String(plain||'').trim();
   if(!text)return null;
@@ -108,7 +132,6 @@ function extractChatMessage(plain){
   if(/回答你[：﹕:]/.test(text))return {kind:'tell',text};
   if(/^【謠言】/.test(text))return {kind:'rumor',text};
   if(/^[^\s【】：﹕:]{1,20}說道[：﹕:]/.test(text))return {kind:'say',text};
-  // 其他頻道：【系統】【巫師】【東方故事】【隊伍】【幫派名】… 只出現在「全部」。
   if(/^【[^】\s]{1,8}】\S/.test(text))return {kind:'other',text};
   return null;
 }
@@ -121,12 +144,18 @@ function captureChatMessages(raw){
     if(!plain)continue;
     const hit=extractChatMessage(plain);
     if(!hit)continue;
-    // Record normalized text rather than the whole transport line, otherwise a
-    // leading command prompt becomes part of the chat history. Each channel has
-    // its own color in the chat window, so ANSI preservation is unnecessary here.
-    chatWindow.add(hit.kind,hit.text);
+    // Render normalized text rather than the whole transport line, otherwise a
+    // leading command prompt becomes part of the chat history.  CHAT/TELL have
+    // their own pane colors, so ANSI preservation is unnecessary here.
+    if(chatWindow)chatWindow.add(hit.kind,hit.text);
+    if(!chatMessages[hit.kind])chatMessages[hit.kind]=[];
+    chatMessages[hit.kind].push({html:esc(hit.text)});
+    if(chatMessages[hit.kind].length>CHAT_LOG_LIMIT)chatMessages[hit.kind].splice(0,chatMessages[hit.kind].length-CHAT_LOG_LIMIT);
+    if(chatView===hit.kind)renderChatLog();
   }
 }
+setupChatTabs();
+renderChatLog();
 function escContext(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function combatStat(label,cur,max,sideKey){
   const pct=max>0?Math.max(0,Math.min(100,cur*100/max)):0;
@@ -483,7 +512,7 @@ function consumeHudPollOutputRaw(s){
   if(!hasEnd && !timedOut)return {visible:'',done:false};
   const whole=holdTrailingHudPartial(hudPollBuffer);
   hudPollInFlight=false;hudBootstrapInFlight=false;hudPollBuffer='';hudPollStartedAt=0;
-  if(hudResponseTimer){clearTimeout(hudResponseTimer);hudResponseTimer=null;}
+  if(hudResponseTimer){clearBg(hudResponseTimer);hudResponseTimer=null;}
   flushPendingUserCommands();
   const kept=stripWebHudLines(whole);
   // HUD polling is a silent transport. Internal payload/prompt whitespace must never
@@ -522,8 +551,8 @@ function pollHud(force=false,allowNoRoom=false){
   lastHudPollAt=hudPollStartedAt;
   ws.send('webhud\r\n');
   if(allowNoRoom)hudBootstrapInFlight=true;
-  if(hudResponseTimer)clearTimeout(hudResponseTimer);
-  hudResponseTimer=setTimeout(()=>{
+  if(hudResponseTimer)clearBg(hudResponseTimer);
+  hudResponseTimer=bgTimeout(()=>{
     hudResponseTimer=null;
     if(!hudPollInFlight)return;
     // Never let a missing/split HUD END marker hold real player clicks forever.
@@ -541,7 +570,7 @@ function pollHud(force=false,allowNoRoom=false){
 function releaseHudPoll(){
   const whole=holdTrailingHudPartial(hudPollBuffer);
   hudPollInFlight=false;hudPollBuffer='';hudPollStartedAt=0;
-  if(hudResponseTimer){clearTimeout(hudResponseTimer);hudResponseTimer=null;}
+  if(hudResponseTimer){clearBg(hudResponseTimer);hudResponseTimer=null;}
   if(!whole)return;
   parseWebHud(whole);
   const kept=stripWebHudLines(whole);
@@ -557,7 +586,7 @@ function startHudPolling(){
 function stopHudPolling(){
   if(hudTimer){clearInterval(hudTimer);hudTimer=null;}
   if(hudKickTimer){clearTimeout(hudKickTimer);hudKickTimer=null;}
-  if(hudResponseTimer){clearTimeout(hudResponseTimer);hudResponseTimer=null;}
+  if(hudResponseTimer){clearBg(hudResponseTimer);hudResponseTimer=null;}
   hudPollInFlight=false;hudPollBuffer='';hudPollStartedAt=0;
   pendingUserCommands=[];
 }
@@ -968,6 +997,7 @@ function optimisticMapMove(command){
 
 
 
+let manualDisconnect=false;
 function connect(){
   if(ws&&[WebSocket.OPEN,WebSocket.CONNECTING].includes(ws.readyState))return;
   conn.textContent='CONNECTING';const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}/mud`);ws.binaryType='arraybuffer';
@@ -1001,7 +1031,7 @@ function connect(){
       kickHudAfterServerText(forceMapRefresh);
     }
   };
-  ws.onclose=e=>{stopHudPolling();editorActive=false;if(mapBootstrapRetryTimer){clearTimeout(mapBootstrapRetryTimer);mapBootstrapRetryTimer=null;}pendingUserCommands=[];mapRefreshPending=false;hudBootstrapInFlight=false;hudBootstrapAttempts=0;currentRoomId=null;runtimeSnapshot=null;tail='';sessionRecorder.finishResponse();sessionRecorder.markTransportClose(e?.code??null,e?.reason||'');sessionRecorder.markReconnect();conn.textContent='DISCONNECTED';if(!started)return;const wait=Math.min(10000,1000*2**Math.min(retry++,3));print(`\n[${wait/1000} 秒後重新連線]\n`,true);setTimeout(connect,wait);};
+  ws.onclose=e=>{stopHudPolling();editorActive=false;if(mapBootstrapRetryTimer){clearTimeout(mapBootstrapRetryTimer);mapBootstrapRetryTimer=null;}pendingUserCommands=[];mapRefreshPending=false;hudBootstrapInFlight=false;hudBootstrapAttempts=0;currentRoomId=null;runtimeSnapshot=null;tail='';sessionRecorder.finishResponse();sessionRecorder.markTransportClose(e?.code??null,e?.reason||'');sessionRecorder.markReconnect();conn.textContent='DISCONNECTED';if(manualDisconnect||!started)return;const wait=Math.min(10000,1000*2**Math.min(retry++,3));print(`\n[${wait/1000} 秒後重新連線]\n`,true);bgTimeout(connect,wait);};
   ws.onerror=()=>conn.textContent='ERROR';
 }
 // Echo the player's own command into the transcript as its own line, the
@@ -1025,8 +1055,8 @@ function echoCommand(c){
   pendingTrimLeadingBlank=true;
   if(stick)scheduleStickScroll();
 }
-function transmitUserCommand(c,sensitive=false,silent=false){
-  if(!sensitive&&!silent)echoCommand(c);
+function transmitUserCommand(c,sensitive=false){
+  if(!sensitive)echoCommand(c);
   const op=editorActive?'':c.split(/\s+/)[0];
   if(!sensitive && /^(?:n|s|e|w|ne|nw|se|sw|u|d|north|south|east|west|northeast|northwest|southeast|southwest|up|down|go|enter|out)$/i.test(op)){
     // Catworld-style feel: move the marker immediately using already-known topology;
@@ -1043,12 +1073,11 @@ function flushPendingUserCommands(){
   if(hudPollInFlight||ws?.readyState!==1||!pendingUserCommands.length)return;
   const queued=pendingUserCommands;
   pendingUserCommands=[];
-  for(const item of queued)transmitUserCommand(item.command,item.sensitive,item.silent);
+  for(const item of queued)transmitUserCommand(item.command,item.sensitive);
 }
-// auto：觸發或計時器送出的指令，畫面上不顯示「> 指令」。
-// keepSpaces：留言／寫信的編輯器裡，每行前面的空白（半形、全形）是內容的一部分，不能去掉。
-function send(c,{auto=false,keepSpaces=false}={}){
-  const sensitive=!auto&&input.type==='password';
+function send(c,keepSpaces=false){
+  const sensitive=input.type==='password';
+  // 留言／寫信的編輯器裡，每行前面的空白（半形、全形）是內容的一部分，不能去掉。
   c=keepSpaces?String(c??'').replace(/[\r\n]+/g,''):String(c??'').trim();
   if(c){lastUserCommandAt=Date.now();if(hudKickTimer){clearTimeout(hudKickTimer);hudKickTimer=null;}}
   if(ws?.readyState!==1){print('\n[尚未連上 ES2]\n',true);return;}
@@ -1059,25 +1088,34 @@ function send(c,{auto=false,keepSpaces=false}={}){
   // by the HUD parser or interleaved with the telemetry command.
   if(hudPollInFlight){
     if(keepSpaces||!pendingUserCommands.some(x=>x.command===c&&x.sensitive===sensitive))
-      pendingUserCommands.push({command:c,sensitive,silent:auto});
+      pendingUserCommands.push({command:c,sensitive});
     // A HUD response is background telemetry. A real click must win quickly even
     // if the END marker is delayed/lost. Give the current HUD packet a very short
     // grace period, then release the queued player action.
-    setTimeout(()=>{
+    bgTimeout(()=>{
       if(!pendingUserCommands.length)return;
       if(hudPollInFlight)releaseHudPoll();
       flushPendingUserCommands();
     },HUD_ACTION_FLUSH_MS);
     return;
   }
-  transmitUserCommand(c,sensitive,auto);
+  transmitUserCommand(c,sensitive);
 }
 
 // 觸發與計時器（設定存在瀏覽器）。輸入密碼、編輯文章或沒連線時不自動送指令。
 const automation=new Automation({
-  sendCommand:c=>send(c,{auto:true}),
+  sendCommand:c=>send(c,false),
+  sendUserCommand:c=>send(c,true),
   notify:m=>print(`\n${m}\n`,true),
   isBlocked:()=>input.type==='password'||editorActive||ws?.readyState!==1,
+  disconnect:()=>{
+    if(!ws||![WebSocket.OPEN,WebSocket.CONNECTING].includes(ws.readyState))return false;
+    manualDisconnect=true;ws.close();return true;
+  },
+  connect:()=>{
+    if(ws&&[WebSocket.OPEN,WebSocket.CONNECTING].includes(ws.readyState))return false;
+    manualDisconnect=false;connect();return true;
+  },
 });
 setupAutomationUI(automation,{
   dialog:document.querySelector('#automationDialog'),
@@ -1085,10 +1123,12 @@ setupAutomationUI(automation,{
   openButtons:[...document.querySelectorAll('[data-ui-automation]')].map(b=>[b,b.dataset.uiAutomation]),
 });
 
+
 // 打開網頁就直接連線（不再顯示封面）。
 async function startGame(){
   if(started)return;
   started=true;gameApp.hidden=false;input.focus();
+  keepPageAlive(); // 背景掛機時避免瀏覽器凍結分頁
   await loadGraph();connect();
 }
 // Set once the box holds a "kept" command (see #form submit below) so a bare
@@ -1113,7 +1153,7 @@ document.querySelector('#form')?.addEventListener('submit',e=>{
   }
   if(editorActive){
     // 編輯器裡一行就是一行內容：保留前面的空白、不拆「;」、不留在欄位裡重複送。
-    send(raw,{keepSpaces:true});input.value='';repeatArmed=false;input.focus();return;
+    send(raw,true);input.value='';repeatArmed=false;input.focus();return;
   }
   // ';' chains several commands from one line, e.g. "e;e;e;n" walks east
   // three times then north. No inter-command delay -- fired back to back.
@@ -1128,8 +1168,7 @@ document.querySelector('#form')?.addEventListener('submit',e=>{
     parts=parts.slice(0,MAX_CHAIN_COMMANDS);
     print('\n你的動作太快了...\n',true);
   }
-  // #tr／#tr on／#tr off 是網頁本地指令，切換全部觸發，不送到伺服器。
-  for(const part of parts){if(!automation.handleClientCommand(part))send(part);}
+  for(const part of parts)send(part);
   // Keep the line in the box (selected, not cleared) so a bare Enter repeats
   // it -- handy for walking a corridor by holding Enter -- while typing
   // anything just overwrites the selection like normal.
@@ -1164,13 +1203,23 @@ document.querySelector('#form')?.addEventListener('click',e=>{
 });
 document.querySelectorAll('[data-cmd]').forEach(b=>b.addEventListener('click',()=>{send(b.dataset.cmd);input.focus();}));
 
+document.querySelectorAll('[data-ui-focus]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x===b));
+  const target=b.dataset.uiFocus==='map'?document.querySelector('#mapPanel'):document.querySelector('#chatPanel');
+  if(target){target.scrollIntoView({behavior:'smooth',block:'nearest'});target.classList.remove('ui-focus-flash');requestAnimationFrame(()=>target.classList.add('ui-focus-flash'));}
+  input.focus();
+}));
+document.querySelectorAll('.nav-item[data-cmd]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x===b));
+}));
 document.querySelector('[data-ui-settings]')?.addEventListener('click',()=>document.querySelector('#uiSettings')?.showModal());
 document.querySelectorAll('[data-map-action]').forEach(b=>b.addEventListener('click',()=>{
   const a=b.dataset.mapAction;if(a==='in')setMapZoom(mapZoom+.12);else if(a==='out')setMapZoom(mapZoom-.12);else setMapZoom(1);
 }));
 const fontRange=document.querySelector('#terminalFontSize'),fontValue=document.querySelector('#terminalFontValue');
 fontRange?.addEventListener('input',()=>{document.documentElement.style.setProperty('--terminal-font-size',fontRange.value+'px');if(fontValue)fontValue.textContent=fontRange.value+'px';localStorage.setItem('es2-ui-font',fontRange.value);});
-try{const f=localStorage.getItem('es2-ui-font');if(f&&fontRange){fontRange.value=f;document.documentElement.style.setProperty('--terminal-font-size',f+'px');if(fontValue)fontValue.textContent=f+'px';}}catch(_){}
+const compactToggle=document.querySelector('#compactContext');compactToggle?.addEventListener('change',()=>{document.body.classList.toggle('context-compact',compactToggle.checked);localStorage.setItem('es2-ui-compact',compactToggle.checked?'1':'0');});
+try{const f=localStorage.getItem('es2-ui-font');if(f&&fontRange){fontRange.value=f;document.documentElement.style.setProperty('--terminal-font-size',f+'px');if(fontValue)fontValue.textContent=f+'px';}const c=localStorage.getItem('es2-ui-compact')==='1';if(compactToggle){compactToggle.checked=c;document.body.classList.toggle('context-compact',c);}}catch(_){}
 
 
 
@@ -1185,7 +1234,8 @@ async function bootPreviewMode(){
   setRoomMapMeta('/preview/main','雪亭','地面','');setExactRoom('/preview/main','中央大街');
   observer.state.vitals={hp:{current:176,limit:210},jing:{current:1296,limit:1296},qi:{current:1738,limit:1738},shen:{current:449,limit:449},food:{current:303,limit:551},water:{current:261,limit:429},fatigue:{current:0,limit:100}};observer.state.score={level:15};renderObserved();
   term.innerHTML='<span class="room-line">【雪亭・中央大街】</span><br>這是一條寬闊的青石大街，兩旁店舖林立，遠處可見城門與屋脊。<br><br><span class="exit-line">出口：北、南、東、西</span><br><br>一名往來的行人從街角走過。<br><br><span class="cmd">&gt; look</span><br>你仔細觀察四周，風裡帶著炊煙與木香。';
-  chatWindow.add('chat','【閒聊】測試玩家﹕新版介面預覽。');
+  document.querySelector('#contextTitle').textContent='中央大街';document.querySelector('#contextBody').innerHTML='<div class="context-line context-person">行人</div><div class="context-line context-item">街邊招牌</div><div class="context-line">東：錢莊　西：客棧　北：武館</div>';
+  document.querySelector('#contextChatLog').innerHTML='<div class="context-line"><b>[CHAT]</b> 測試玩家：新版介面預覽。</div>';
   return true;
 }
 bootPreviewMode().then(()=>startGame());
