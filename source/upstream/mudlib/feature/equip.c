@@ -254,7 +254,9 @@ inflict_damage(int strength, object victim)
     {
         bonus = max_bonus;
         damage = dam->multipler * dam->range;
-        owner->improve_skill("powerblow", 1 + bonus/5);
+        owner->improve_skill("powerblow", random(1 + max_bonus)
+            * (1 + owner->query_skill("powerblow", 1) / 20)
+            * owner->query_attr("str") / 5);
     }
     else damage = dam->multipler * (1+random(dam->range));
 
