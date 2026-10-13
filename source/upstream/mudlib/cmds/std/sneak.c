@@ -107,7 +107,9 @@ int do_sneak(object me, object obj, string dir, string exit_dir, int type)
     if( me->query_temp("sneak_countdown") > 0 ) {
 	me->add_temp("sneak_countdown", -1);
 	tell_object(me, CYN "小心翼翼 ...\n" NOR);
-	me->improve_skill("sneak", 1);
+	// 準備潛行時每次依悟性給予經驗。
+	// 潛行成功時使用戰鬥系統的悟性基本經驗公式。
+        me->improve_skill("sneak", COMBAT_D->int_formula_exp(me));
 	return 1;
     }
 
