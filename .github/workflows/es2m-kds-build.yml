@@ -1,0 +1,26 @@
+name: ES2M-KDS Sync Build Validation
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout ES2M-KDS
+        uses: actions/checkout@v4
+
+      - name: Run Python regression tests
+        run: |
+          python3 -m pip install --disable-pip-version-check pytest
+          python3 -m pytest -q tests/test_npc_power.py tests/test_npc_may_yin_fong.py tests/test_player_sync_contract.py tests/test_soldier_admin_integration.py tests/test_multiplayer_bridge_contract.py tests/test_render_runtime_contract.py tests/test_player_lifecycle_contract.py tests/test_xingtian_birth_contract.py tests/test_race_birth_attributes_contract.py tests/test_attribute_label_contract.py tests/test_admin_skill_id_contract.py tests/test_v32052_chat_capture.py tests/test_v32068_interaction_hud_serialization.py tests/test_v32076_final_skill_and_remove_interaction.py tests/test_v30_webmud_compat.py tests/test_v33_ui.py
+
+      - name: Run zMUD automation regression tests
+        run: node tests/test_automation_zmud_commands.mjs
+
+      - name: Build Render image
+        run: docker build --progress=plain -t es2m-kds-mud:test .
