@@ -13,6 +13,13 @@ author: Annihilator <taedlar@gmail.com>
 inherit F_CLEAN_UP;
 inherit F_DBASE;
 
+/* 練武用的假人、木樁（set("training_dummy", 1)）被命中時的敘述：死物，不提部位、不提傷勢。 */
+string *dummy_hit_msg = ({
+    "結果扎扎實實的命中$n。\n",
+    "結果不偏不倚地擊中$n。\n",
+    "結果「啪」地一聲落在$n上，$n紋風不動。\n",
+});
+
 string *catch_hunt_msg = ({
     HIW "$N和$n仇人相見分外眼紅﹐立刻打了起來！\n" NOR,
     HIW "$N對著$n大喝﹕「可惡﹐又是你！」\n" NOR,
@@ -158,14 +165,19 @@ private int restored_d(object me, object opponent)
 
 private int restored_int_base(object me)
 {
-    return me->query_attr("int") / 7;
+    int ib;
+    ib = me->query_attr("int") / 7;
+    return ib < 1 ? 1 : ib;
 }
 
-private int restored_defense_exp(object me, object opponent)
+/* 防禦經驗：(random(屬性) + 1) × (random(d) + 1) × (智力/7)。
+ * 閃躲用敏捷（dex），格擋用定力（cps）。 */
+private int restored_defense_exp(object me, object opponent, string attr)
 {
-    int d;
+    int d, a;
     d = restored_d(me, opponent);
-    return (random(d) + 1) * (random(d) + 1) * restored_int_base(me);
+    a = me->query_attr(attr);
+    return ((a > 0 ? random(a) : 0) + 1) * (random(d) + 1) * restored_int_base(me);
 }
 
 /* 成功閃躲、格擋時取得實戰經驗（combat）。
@@ -189,29 +201,45 @@ private void defense_combat_gain(object me, object opponent)
 void restored_dodge_gain(object me, object opponent)
 {
     string mapped;
-    int exp;
     if( !userp(me) || !objectp(opponent) ) return;
     defense_combat_gain(me, opponent);
-    exp = restored_defense_exp(me, opponent);
-    me->improve_skill_exact("dodge", exp);
+    me->improve_skill_exact("dodge", restored_defense_exp(me, opponent, "dex"));
     mapped = me->skill_mapped("dodge");
-    if( mapped == "tiger-steps" ) me->improve_skill_exact("tiger-steps", exp);
+    if( stringp(mapped) && mapped != "dodge" )
+        me->improve_skill_exact(mapped, restored_defense_exp(me, opponent, "dex"));
 }
 
-/* 格擋成功（含完全擋下）時呼叫：招架經驗 = 閃躲的基礎公式 + random(定力)，
- * enable 在招架上的武功一起漲同樣的點數。 */
+/* 格擋成功（含完全擋下）時呼叫：基本招架 = (random(定力)+1) × (random(d)+1) × (智力/7)。
+ * enable 在招架上的武功不從格擋拿點數；武功檔有 parry_gains_exp() 傳回 1 時才給（各自擲骰）。 */
 void restored_parry_gain(object me, object opponent)
 {
-    int exp, cps;
     string art;
+    object daemon;
+    int exp, lo;
     if( !userp(me) || !objectp(opponent) ) return;
     defense_combat_gain(me, opponent);
-    exp = restored_defense_exp(me, opponent);
-    cps = me->query_attr("cps");
-    if( cps > 0 ) exp += random(cps);
+    exp = restored_defense_exp(me, opponent, "cps");
     me->improve_skill_exact("parry", exp);
+    /* 強力格擋：這次招架點數 × (定力×1.5 ～ 100)%，定力 67 以上固定 100%。 */
+    if( me->query_learn("heavy_parry") ) {
+        lo = me->query_attr("cps") * 3 / 2;
+        if( lo > 100 ) lo = 100;
+        if( lo < 0 ) lo = 0;
+        me->improve_skill_exact("heavy_parry", exp * (lo + random(101 - lo)) / 100);
+    }
     art = me->skill_mapped("parry");
-    if( stringp(art) && art != "parry" ) me->improve_skill_exact(art, exp);
+    if( stringp(art) && art != "parry" && objectp(daemon = SKILL_D(art))
+    &&  function_exists("parry_gains_exp", daemon) && daemon->parry_gains_exp() )
+        me->improve_skill_exact(art, restored_defense_exp(me, opponent, "cps"));
+}
+
+/* 沒有另外設定公式的技能一律用：(random(智力)+1) × (random(智力)+1) + random(智力)。 */
+int int_formula_exp(object me)
+{
+    int i;
+    i = me->query_attr("int");
+    if( i < 1 ) i = 1;
+    return (random(i) + 1) * (random(i) + 1) + random(i);
 }
 
 /* 基本攻擊技能：命中時不給武術造詣。 */
@@ -228,17 +256,17 @@ private string *basic_attack_skills = ({
 
 private void restored_hit_gain(object me, object victim, string skill, object weapon)
 {
-    int exp, ib, str;
+    int exp, str;
     string base, equipped, art;
     object daemon;
 
     if( !userp(me) || !objectp(victim) ) return;
-    ib = restored_int_base(me);
 
     /* 用 enable 的武功（非基本技能）造成傷害，每次 1 點武術造詣。 */
     if( member_array(skill, basic_attack_skills) < 0 )
         me->gain_score("martial art", 1);
 
+    /* 空手沒用武功：基本拳腳用力量公式。 */
     if( skill == "unarmed" ) {
         str = me->query_attr("str");
         if( str > 0 ) {
@@ -248,12 +276,9 @@ private void restored_hit_gain(object me, object victim, string skill, object we
         return;
     }
 
-    if( skill == "tiger-blade" ) base = "twohanded blade";
-    else if( skill == "sanmeendo" ) base = "blade";
-    /* 新版武功引擎做的武功（std/martial_art.c）：基本技能取武器裝備的位置，
-     * 武功本身漲同樣的點數。 */
-    else if( objectp(daemon = SKILL_D(skill))
-         &&  function_exists("is_martial_art", daemon) ) {
+    /* 新版武功引擎做的武功（std/martial_art.c）：基本技能取武器裝備的位置。 */
+    if( objectp(daemon = SKILL_D(skill))
+    &&  function_exists("is_martial_art", daemon) ) {
         equipped = objectp(weapon) ? weapon->query("equipped") : 0;
         if( stringp(equipped) && equipped[0..6] == "weapon/" ) base = equipped[7..];
         else base = daemon->query_base_skill();
@@ -261,20 +286,15 @@ private void restored_hit_gain(object me, object victim, string skill, object we
     }
     // Every other weapon skill (axe, sword, pike, staff, blade, their
     // twohanded/secondhand variants, dagger, needle, blunt, whip, ...)
-    // gains its own experience directly -- this used to be a narrow
-    // blade-only allowlist, so any other weapon skill got hits registered
-    // but no learned progress at all.
+    // gains its own experience directly.
     else base = skill;
 
-    if( stringp(base) ) {
-        exp = (random(me->query_attr("int")) + 1) * ib;
-        me->improve_skill_exact(base, exp);
-        if( skill == "sanmeendo" ) me->improve_skill_exact("sanmeendo", exp);
-        else if( stringp(art) ) me->improve_skill_exact(art, exp);
-        else if( skill == "tiger-blade" ) {
-            exp += random(me->query_attr("cor"));
-            me->improve_skill_exact("tiger-blade", exp);
-        }
+    /* 基本技能與武功本身都用智力公式，各自擲骰；瘋虎刀法本身另加 random(膽識)。 */
+    if( stringp(base) ) me->improve_skill_exact(base, int_formula_exp(me));
+    if( stringp(art) ) {
+        exp = int_formula_exp(me);
+        if( art == "tiger-blade" ) exp += random(me->query_attr("cor"));
+        me->improve_skill_exact(art, exp);
     }
 }
 
@@ -301,7 +321,7 @@ int elemental_extra(object me, object victim, string element)
 varargs int
 fight (object me, object victim, string skill, mapping action, object weapon)
 {
-    int ability, strength, damage, gin_cost, force_bonus;
+    int ability, strength, damage, gin_cost, force_bonus, dummy;
     string msg, force_skill;
 
     // 若在非戰區, 且戰鬥雙方都沒被arrest, 停止戰鬥 -Dragoon
@@ -317,6 +337,10 @@ fight (object me, object victim, string skill, mapping action, object weapon)
 
     me->set_combat_message(action["action"]);
     me->set_temp("last_action", action);
+
+    /* 練武假人：必定命中，敘述不提部位與傷勢。耗精照一般公式
+     * （沒有內功為 random(2)，有內功依功力提高）。 */
+    dummy = victim->query("training_dummy");
 
     /* 力道
      */
@@ -354,6 +378,13 @@ fight (object me, object victim, string skill, mapping action, object weapon)
     if( !undefinedp(action["gin_pct"]) )
         gin_cost = gin_cost * action["gin_pct"] / 100;
 
+    /* 重擊術（powerblow）：軍人被動攻擊技巧。
+     * 只有實際學會時才生效；等級 200 時增加 25% 攻擊力道。
+     * 放在 fight() 的力道層，讓徒手與持械攻擊都一致受益。
+     */
+    if( me->query_learn("powerblow") && me->query_skill("powerblow") > 0 )
+        strength += strength * me->query_skill("powerblow") / 800;
+
     /* 命中率: 攻擊能力 + 攻擊技能 + 招式係數 */
     ability = me->query_ability("attack")
         + me->query_skill(skill)
@@ -386,7 +417,7 @@ fight (object me, object victim, string skill, mapping action, object weapon)
     /* 要求攻擊對象進行防禦。 */
     me->set_temp("defend_message", 0);
     /* 招式帶 must_hit（例如三門齊開）時不讓對方閃躲或格擋，防具照樣減傷。 */
-    if( !action["must_hit"]
+    if( !action["must_hit"] && !dummy
     &&  !victim->is_busy()
     &&  victim->defend(ability, strength, weapon ? weapon : me) )
     {
@@ -408,7 +439,7 @@ fight (object me, object victim, string skill, mapping action, object weapon)
 
         me->set_temp("absorb_message", 0);
         victim->delete_temp("parry_result");
-        if( !action["must_hit"] )
+        if( !action["must_hit"] && !dummy )
             strength -= (int)victim->absorb(ability, strength,
                     weapon ? weapon : me);
         absorb_msg = me->query_temp("absorb_message");
@@ -489,6 +520,14 @@ fight (object me, object victim, string skill, mapping action, object weapon)
     if( action["brief"] ) msg = action["action"] + "\n";
     /* 招式帶 silent 時完全不顯示（連擊由武功自行顯示敘述與體力狀態）。 */
     if( action["silent"] ) msg = 0;
+    /* 練武假人：只留出招敘述（拿掉部位），接一句簡短的命中敘述。 */
+    if( dummy && stringp(msg) ) {
+        msg = action["action"];
+        msg = replace_string(msg, "$n的$l", "$n");
+        msg = replace_string(msg, "$n$l", "$n");
+        msg = replace_string(msg, "$l", "$n");
+        msg += "﹐" + dummy_hit_msg[random(sizeof(dummy_hit_msg))];
+    }
     if( stringp(msg) )
     {
         string *limbs = victim->query("limbs");
@@ -501,7 +540,7 @@ fight (object me, object victim, string skill, mapping action, object weapon)
         if( weapon ) msg = replace_string(msg, "$w", weapon->name());
 
         message_vision( msg, me, victim, 1);
-        if( damage > 0 && !action["brief"] ) report_status(victim);
+        if( damage > 0 && !action["brief"] && !dummy ) report_status(victim);
     }
 
     // 武器攻擊被閃躲、格擋，或命中但力道被完全吸收（沒造成傷害）後的
