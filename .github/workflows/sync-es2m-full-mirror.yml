@@ -1,0 +1,39 @@
+name: One-time ES2M full mirror sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sync-es2m-full-mirror.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: es2m-full-mirror-main
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ES2M-KDS destination
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Clone read-only ES2M source
+        run: git clone --depth 1 --branch main https://github.com/wolfer168/es2-webmud.git /tmp/es2m-source
+      - name: Mirror source files into ES2M-KDS
+        run: |
+          rsync -a --delete --exclude='.git' /tmp/es2m-source/ "$GITHUB_WORKSPACE/"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "ES2M-KDS already matches ES2M."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Sync full ES2M main snapshot"
+          git push origin HEAD:main
