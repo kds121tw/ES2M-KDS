@@ -62,11 +62,10 @@ def test_every_skill_caps_at_200_and_levels_one_per_gain():
     g=src('source/upstream/mudlib/cmds/usr/gain.c')
     assert 'me->apply_gain_progression(skill_g);' in g
 
-def test_tiger_force_completes_at_common_level20_floor():
-    t=src('source/upstream/mudlib/daemon/skill/tiger-force.c')
-    assert 'int query_entry_level() { return 20; }' in t
-    assert common_threshold(20) == 40_000
-    assert common_threshold(21) == 44_100
+def test_tiger_force_completes_at_level15_with_own_threshold():
+    t=src('source/upstream/mudlib/daemon/skill/tiger_force.c')
+    assert 'int query_entry_level() { return 15; }' in t
+    assert 'int query_entry_threshold() { return 10000; }' in t
 
 def test_teacher_only_seeds_up_to_level_one_floor():
     g=src('source/upstream/mudlib/d/oldpine/npc/kao_shen.c')
@@ -88,7 +87,8 @@ def test_trigger_wiring_is_success_only_not_attempt_only():
 def test_no_legacy_level_multiplier_in_exact_gain():
     s=src('source/upstream/mudlib/feature/char/skill.c')
     exact=s.split('void improve_skill_exact',1)[1].split('// improve_skill()',1)[0]
-    assert 'query_level() / 8' not in exact
+    # 2026-10-10 使用者定案：所有技能點數都吃人物等級加成。
+    assert 'amount += amount * random(this_object()->query_level() / 8);' in exact
     assert 'skill_gain[skill]' in exact
 
 def advance_model(level, learned, cap=200):

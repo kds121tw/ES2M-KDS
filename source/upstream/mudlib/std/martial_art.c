@@ -8,7 +8,7 @@ description: 新版武功共用引擎（NEW）。武功檔只填資料，選招�
 inherit SKILL;
 
 /* 以下由武功檔在 create() 裡設定。 */
-string art_id;          // 技能代碼，例如 "sanmeendo"
+string art_id;          // 技能代碼，例如 "ksanmando"
 string art_name;        // 中文名稱
 string art_usage;       // enable 在哪個基本技能，例如 "blade"
 string art_desc;        // 武功簡介
@@ -26,6 +26,8 @@ string mm_first_msg;    // 第一次獲得武學之道時的訊息（可留空�
  *   art_entry_msg   從 0 級學成時的訊息
  *   level_msgs      升到特定等級時的訊息，([ 等級: 訊息 ]) */
 int art_entry;
+int art_entry_threshold;   // 學成所需累積點數；0 表示照原本算法
+int art_entry_reward;      // 1 表示學成那一級也給每級獎勵（預設從下一級起）
 string art_entry_msg;
 mapping level_msgs = ([]);
 
@@ -38,6 +40,14 @@ mapping *query_moves() { return moves; }
 int valid_enable(string usage) { return usage == art_usage; }
 
 int query_entry_level() { return art_entry > 1 ? art_entry : 1; }
+int query_entry_threshold() { return art_entry_threshold; }
+
+/* 學習條件：師父傳授前呼叫 SKILL_D(skill)->valid_learn(me)，傳回 0 表示不能學
+ * （武功檔用 notify_fail() 說明原因）。沒有覆寫的武功沒有條件。 */
+int valid_learn(object me) { return 1; }
+
+/* 冷梅莊等門派弟子的判定：custom_faction（例如虎刀門是 "fighter.tiger"）。 */
+int is_faction(object me, string faction) { return me->query("custom_faction") == faction; }
 
 /* 從 0 級學成時呼叫一次（在升級之前）。 */
 void skill_completed(object me, string skill)
@@ -98,6 +108,7 @@ varargs int special_hit(object me, object victim, object weapon, mapping m,
 {
     mapping act;
 
+    if( !objectp(weapon) ) weapon = 0;
     if( !mapp(m) ) m = moves[random(sizeof(moves))];
     act = make_action(m, pct);
     act["gin_pct"] = gin_pct;
@@ -120,7 +131,9 @@ int kee_ratio(object ob)
 
 void show_status(object ob, int ratio)
 {
-    if( objectp(ob) && ratio >= 0 ) message_vision(COMBAT_D->status_msg(ratio), ob);
+    // 練武假人是死物，不顯示體力狀態。
+    if( objectp(ob) && ratio >= 0 && !ob->query("training_dummy") )
+        message_vision(COMBAT_D->status_msg(ratio), ob);
 }
 
 /* 依技能等級成長的機率：200 級時達到 max（%）。 */
@@ -140,13 +153,16 @@ void attack_using(object me, object opponent, object weapon)
     int damage;
 
     if( !opponent ) return;
+    /* 空手出招時，系統傳來的第三個參數是技能名稱而不是武器，當成沒有武器。 */
+    if( !objectp(weapon) ) weapon = 0;
     m = pick_move(me);
     damage = COMBAT_D->fight(me, opponent, art_id, make_action(m, 100), weapon);
     after_strike(me, opponent, weapon, m, damage);
 }
 
 /* 每次升級後呼叫；學成時一次跳多級也只呼叫一次。
- * 每級獎勵只給超過學成等級的部分（學成等級為 1 時從 1 級開始給）。 */
+ * 每級獎勵只給超過學成等級的部分（學成等級為 1 時從 1 級開始給）；
+ * art_entry_reward 設為 1 時學成那一級也給。 */
 void skill_advanced(object me, string skill)
 {
     int lv;
@@ -158,7 +174,7 @@ void skill_advanced(object me, string skill)
         tell_object(me, HIY + msg + NOR);
 
     if( !userp(me) ) return;
-    if( art_entry > 1 && lv <= art_entry ) return;
+    if( art_entry > 1 && (art_entry_reward ? lv < art_entry : lv <= art_entry) ) return;
 
     if( ma_coef > 0 ) me->gain_score("martial art", lv * ma_coef);
 

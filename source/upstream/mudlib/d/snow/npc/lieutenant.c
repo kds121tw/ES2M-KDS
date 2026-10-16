@@ -7,23 +7,19 @@ inherit F_SOLDIER;
 void create()
 {
     set_name("武官", "lieutenant" );
-    set_attr("con", 21);
-    set_attr("str", 22);
     set_race("human");
-    set_class("commoner");
+    set_class("soldier");
     set_level(24);
 
     set_skill("twohanded sword", 80);
     set_skill("blade", 60);
-    set_skill("unarmed", 65);
-    set_skill("parry", 60);
-    set_skill("dodge", 70);
 
     set("age", 36);
     set("long", "這是一名指揮官兵的武官﹐他們通常是軍人中出類拔萃的佼佼者。\n");
     set("vendetta_mark", "authority");
     set("bounty/martial art", 250);
     set("bounty/martial mastery", 150);
+    set_power("B");
     setup();
     carry_object( STOCK_ARMOR("cloth") )->wear();
     carry_object(__DIR__"obj/leather_armor")->wear();

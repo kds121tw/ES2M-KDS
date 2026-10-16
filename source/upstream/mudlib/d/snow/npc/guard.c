@@ -7,20 +7,15 @@ inherit F_VILLAGER;
 void create()
 {
     set_name("青衣漢子", ({"guard"}));
-    set_attr("str", 20);
-    set_attr("con", 20);
     set_race("human");
-    set_class("commoner");
-    set_level(20);
+    set_class("fighter");
+    set_level(10);
 
-    set_skill("sword", 70);
     set_skill("blade", 50);
-    set_skill("parry", 50);
-    set_skill("unarmed", 40);
-    set_skill("dodge", 70);
 
     set("age", 26);
     set("long", "一個身穿藏青勁裝的漢子﹐雙目炯炯有神地盯著你。\n");
+    set_power("C");
     setup();
     carry_object( STOCK_ARMOR("cloth") )->wear();
     carry_object( STOCK_WEAPON("longsword") )->wield();

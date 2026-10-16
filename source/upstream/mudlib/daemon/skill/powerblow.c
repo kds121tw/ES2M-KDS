@@ -42,13 +42,3 @@ void skill_advanced(object me, string skill)
             tell_object(me, HIY "千錘百鍊的重擊讓你的體魄更加強健﹐精、氣更加充沛了。\n" NOR);
     }
 }
-
-int valid_enable(string usage)
-{
-    return 0;
-}
-
-string type()
-{
-    return "martial";
-}

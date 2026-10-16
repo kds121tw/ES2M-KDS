@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!-- 終端機中文字型：Noto Sans TC（思源黑體繁體），英文與符號用網站自帶的 ES2 Mono（更紗黑體） -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap">
-  <link rel="stylesheet" href="/styles.css?v=es2m-kds-sync-1013">
+  <link rel="stylesheet" href="/styles.css?v=blank-1013">
 </head>
 <body class="game-body">
   <div id="gameApp" class="game-app">
@@ -23,11 +23,7 @@
             <small>CELESTIAL EMPIRE</small>
           </div>
           <nav class="nav-menu">
-            <button type="button" class="nav-item active" data-cmd="score"><span class="nav-icon">◈</span><span>狀態</span></button>
-            <button type="button" class="nav-item" data-cmd="inventory"><span class="nav-icon">▣</span><span>背包</span></button>
-            <button type="button" class="nav-item" data-cmd="skills"><span class="nav-icon">卷</span><span>技能</span></button>
-            <button type="button" class="nav-item" data-ui-focus="map"><span class="nav-icon">圖</span><span>地圖</span></button>
-            <button type="button" class="nav-item" data-ui-focus="chat" data-ui-chat aria-pressed="false"><span class="nav-icon">言</span><span>聊天</span></button>
+            <button type="button" class="nav-item" data-ui-chat aria-pressed="false"><span class="nav-icon">言</span><span>聊天</span></button>
             <button type="button" class="nav-item" data-ui-automation="triggers"><span class="nav-icon">觸</span><span>觸發</span></button>
             <button type="button" class="nav-item" data-ui-automation="timers"><span class="nav-icon">時</span><span>計時器</span></button>
             <button type="button" class="nav-item" data-cmd="help"><span class="nav-icon">?</span><span>說明</span></button>
@@ -57,32 +53,6 @@
           </form>
         </main>
 
-        <section class="context-panel" id="contextPanel" aria-label="情境資訊">
-          <div class="context-card">
-            <div class="context-kicker">SCENE / INTERACTION</div>
-            <h2 id="contextTitle">目前場景</h2>
-            <div id="contextBody" class="context-body">
-              <div class="context-sigil">東方故事 II</div>
-              <p>等待遊戲場景資訊。</p>
-              <small>此面板整理原生 ES2 輸出中的人物、物件與戰鬥資訊。</small>
-            </div>
-          </div>
-          <div class="context-chat-card" id="chatPanel" aria-label="聊天訊息">
-            <div class="context-chat-head">
-              <div>
-                <div class="context-kicker">MESSAGES</div>
-                <strong>江湖傳訊</strong>
-              </div>
-              <div class="context-chat-tabs" role="tablist" aria-label="聊天類型">
-                <button type="button" class="context-chat-tab active" data-chat-tab="chat" role="tab" aria-selected="true">CHAT</button>
-                <button type="button" class="context-chat-tab" data-chat-tab="tell" role="tab" aria-selected="false">TELL</button>
-              </div>
-            </div>
-            <div id="contextChatLog" class="context-chat-log" aria-live="polite">
-              <div class="context-chat-empty">尚無 CHAT 訊息。</div>
-            </div>
-          </div>
-        </section>
       </div>
 
       <aside class="game-side">
@@ -199,6 +169,7 @@
           <p><code>*</code> 任意文字　<code>?</code> 任一個字　<code>%d</code> 數字　<code>%n</code> 可帶正負號的數字　<code>%w</code> 一個詞（中英文字、數字）　<code>%s</code> 空白　<code>%x</code> 非空白字元</p>
           <p><code>( )</code> 擷取文字，指令裡用 <code>%1</code>～<code>%9</code> 帶入（<code>%0</code> 是整段符合的文字）　<code>{甲|乙}</code> 二選一　<code>[abc]</code> 字元集合　<code>^</code> 行首　<code>$</code> 行尾　<code>~</code> 讓下一個字元照字面比對</p>
           <p>例：樣式 <code>^(%w)告訴你：(*)$</code>，指令 <code>reply 收到：%2</code>。指令可用 <code>;</code> 串接，也可以寫 <code>#tr off</code>。</p>
+          <p>網頁指令（輸入欄、觸發、計時器都能用，不會送到遊戲）：<code>#wa 2000</code> 等 2 秒再送後面的指令（單位毫秒，只寫 <code>#wa</code> 是 1 秒）　<code>#3 e</code> 同一個指令重複 3 次　<code>#dis</code> 中斷連線（不會自動重連）　<code>#con</code> 重新連線　<code>#t+ 類別</code>／<code>#t- 類別</code> 開關某一組觸發　<code>#sh 文字</code> 只在自己畫面印一行字。例：<code>n;#wa 2000;get all;s</code>。</p>
           <p>同一行符合多個觸發時全部都會執行。自動指令一秒內超過 20 個會自動暫停，避免觸發互相引發造成無限循環。輸入密碼或編輯文章時不會自動送指令。</p>
         </details>
       </section>
@@ -226,17 +197,15 @@
       </section>
     </dialog>
 
-    
     <dialog id="uiSettings" class="ui-settings">
       <form method="dialog">
         <div class="settings-head"><strong>介面設定</strong><button value="cancel" aria-label="關閉">×</button></div>
         <label>文字大小 <input id="terminalFontSize" type="range" min="13" max="20" value="15"><span id="terminalFontValue">15px</span></label>
-        <label class="toggle-line"><input id="compactContext" type="checkbox"> 精簡下方情境區</label>
         <p>這些設定只影響瀏覽器顯示，不修改 MUD Server。</p>
       </form>
     </dialog>
   </div>
 
-  <script type="module" src="/app.js?v=es2m-kds-sync-1013"></script>
+  <script type="module" src="/app.js?v=blank-1013"></script>
 </body>
 </html>

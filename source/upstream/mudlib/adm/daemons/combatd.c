@@ -13,13 +13,6 @@ author: Annihilator <taedlar@gmail.com>
 inherit F_CLEAN_UP;
 inherit F_DBASE;
 
-/* 練武用的假人、木樁（set("training_dummy", 1)）被命中時的敘述：死物，不提部位、不提傷勢。 */
-string *dummy_hit_msg = ({
-    "結果扎扎實實的命中$n。\n",
-    "結果不偏不倚地擊中$n。\n",
-    "結果「啪」地一聲落在$n上，$n紋風不動。\n",
-});
-
 string *catch_hunt_msg = ({
     HIW "$N和$n仇人相見分外眼紅﹐立刻打了起來！\n" NOR,
     HIW "$N對著$n大喝﹕「可惡﹐又是你！」\n" NOR,
@@ -27,6 +20,13 @@ string *catch_hunt_msg = ({
     HIW "$N一眼瞥見$n﹐「哼」的一聲衝了過來！\n" NOR,
     HIW "$N喝道﹕「狗賊！別跑」\n" NOR,
     HIW "$N喝道﹕「納命來！」\n" NOR
+});
+
+/* 練武用的假人、木樁（set("training_dummy", 1)）被命中時的敘述：死物，不提部位、不提傷勢。 */
+string *dummy_hit_msg = ({
+    "結果扎扎實實的命中$n。\n",
+    "結果不偏不倚地擊中$n。\n",
+    "結果「啪」地一聲落在$n上，$n紋風不動。\n",
 });
 
 string *dead_msg = ({
@@ -163,6 +163,7 @@ private int restored_d(object me, object opponent)
     return d;
 }
 
+/* 智力加成 智力/7，最低 1：智力不足 7 只是沒有加成，不會學不到技能。 */
 private int restored_int_base(object me)
 {
     int ib;
@@ -198,6 +199,8 @@ private void defense_combat_gain(object me, object opponent)
     me->gain_score("combat", n > 0 ? 1 + random(n) : 1);
 }
 
+/* 閃躲成功時呼叫：基本閃躲與 enable 在閃躲上的身法，
+ * 都是 (random(敏捷)+1) × (random(d)+1) × (智力/7)，兩者各自擲骰。 */
 void restored_dodge_gain(object me, object opponent)
 {
     string mapped;
@@ -209,7 +212,8 @@ void restored_dodge_gain(object me, object opponent)
         me->improve_skill_exact(mapped, restored_defense_exp(me, opponent, "dex"));
 }
 
-/* 格擋成功（含完全擋下）時呼叫：基本招架 = (random(定力)+1) × (random(d)+1) × (智力/7)。
+/* 格擋成功（含完全擋下）時呼叫：基本招架 = (random(定力)+1) × (random(d)+1) × (智力/7)；
+ * 學過強力格擋時，強力格擋另得這次招架點數的 (定力×1.5～100)%。
  * enable 在招架上的武功不從格擋拿點數；武功檔有 parry_gains_exp() 傳回 1 時才給（各自擲骰）。 */
 void restored_parry_gain(object me, object opponent)
 {
@@ -256,8 +260,8 @@ private string *basic_attack_skills = ({
 
 private void restored_hit_gain(object me, object victim, string skill, object weapon)
 {
-    int exp, str;
-    string base, equipped, art;
+    int exp, str, cps;
+    string base, equipped, art, force;
     object daemon;
 
     if( !userp(me) || !objectp(victim) ) return;
@@ -265,6 +269,16 @@ private void restored_hit_gain(object me, object victim, string skill, object we
     /* 用 enable 的武功（非基本技能）造成傷害，每次 1 點武術造詣。 */
     if( member_array(skill, basic_attack_skills) < 0 )
         me->gain_score("martial art", 1);
+
+    /* 空手打中、且內功設定成特殊內功時，基本內功另得
+     * (random(膂力) × random(定力) + random(膂力)) × (智力/7，最低 1)。 */
+    if( !objectp(weapon) && stringp(force = me->skill_mapped("force")) && force != "force" ) {
+        str = me->query_attr("str");
+        cps = me->query_attr("cps");
+        exp = ((str > 0 ? random(str) : 0) * (cps > 0 ? random(cps) : 0)
+            + (str > 0 ? random(str) : 0)) * restored_int_base(me);
+        if( exp > 0 ) me->improve_skill_exact("force", exp);
+    }
 
     /* 空手沒用武功：基本拳腳用力量公式。 */
     if( skill == "unarmed" ) {
@@ -377,13 +391,6 @@ fight (object me, object victim, string skill, mapping action, object weapon)
     /* 招式耗精比例（action["gin_pct"]，100 = 一般，0 = 不耗精），新版武功的特效用。 */
     if( !undefinedp(action["gin_pct"]) )
         gin_cost = gin_cost * action["gin_pct"] / 100;
-
-    /* 重擊術（powerblow）：軍人被動攻擊技巧。
-     * 只有實際學會時才生效；等級 200 時增加 25% 攻擊力道。
-     * 放在 fight() 的力道層，讓徒手與持械攻擊都一致受益。
-     */
-    if( me->query_learn("powerblow") && me->query_skill("powerblow") > 0 )
-        strength += strength * me->query_skill("powerblow") / 800;
 
     /* 命中率: 攻擊能力 + 攻擊技能 + 招式係數 */
     ability = me->query_ability("attack")

@@ -26,6 +26,42 @@ void apply_restored_skill_progression(string skill);
 
 // implementations
 
+/* 武功代碼更名（使用者決定，2026-10-14）：舊存檔讀進來後把舊代碼換成新代碼，
+ * 等級、修練進度、技能對應都保留。由 /feature/save.c 的 restore() 呼叫。 */
+static mapping RENAMED_SKILL = ([
+    "sanmeendo":   "ksanmando",     // 三門刀法
+    "tiger-force": "tiger force",   // 瘋虎功
+]);
+
+void migrate_skill_ids()
+{
+    string old, nw, k;
+
+    foreach( old, nw in RENAMED_SKILL ) {
+        if( mapp(skills) && !undefinedp(skills[old]) ) {
+            if( skills[nw] < skills[old] ) skills[nw] = skills[old];
+            map_delete(skills, old);
+        }
+        if( mapp(learned) && !undefinedp(learned[old]) ) {
+            if( learned[nw] < learned[old] ) learned[nw] = learned[old];
+            map_delete(learned, old);
+        }
+        if( mapp(skill_flag) && !undefinedp(skill_flag[old]) ) {
+            if( undefinedp(skill_flag[nw]) ) skill_flag[nw] = skill_flag[old];
+            map_delete(skill_flag, old);
+        }
+        if( mapp(skill_map) ) {
+            if( !undefinedp(skill_map[old]) ) {
+                if( undefinedp(skill_map[nw]) ) skill_map[nw] = skill_map[old];
+                map_delete(skill_map, old);
+            }
+            foreach( k in keys(skill_map) )
+                if( skill_map[k] == old ) skill_map[k] = nw;
+        }
+        if( best_skill == old ) best_skill = nw;
+    }
+}
+
 string query_best_skill()
 {
     return best_skill;
@@ -206,9 +242,16 @@ int skill_entry_level(string skill)
 int skill_threshold(string skill, int level)
 {
     object daemon;
-    int pct;
+    int pct, entry;
 
     daemon = SKILL_D(skill);
+    /* 學成門檻：技能檔用 query_entry_threshold() 指定學成那一級所需的累積點數，
+     * 例如瘋虎刀法 50000 點學成 30 級；沒指定的照原本算法。 */
+    if( objectp(daemon) && function_exists("query_entry_threshold", daemon)
+    &&  level == skill_entry_level(skill)
+    &&  (entry = call_other(daemon, "query_entry_threshold")) > 0 )
+        return entry;
+
     if( objectp(daemon) && function_exists("query_threshold_percent", daemon) )
         pct = call_other(daemon, "query_threshold_percent");
     if( pct <= 0 ) pct = 100;
@@ -275,6 +318,8 @@ void improve_skill_exact(string skill, int amount)
 
     if( skill_flag[skill] & SKILL_FLAG_ABANDONED ) return;
     if( amount <= 0 ) return;
+    /* 人物等級加成：點數 × (1 + random(人物等級 / 8))。 */
+    amount += amount * random(this_object()->query_level() / 8);
     if( undefinedp(learned[skill]) ) learned[skill] = amount; else learned[skill] += amount;
     if( undefinedp(skill_gain[skill]) ) skill_gain[skill] = amount; else skill_gain[skill] += amount;
     if( undefinedp(skills[skill]) ) skills[skill] = 0;
@@ -295,6 +340,7 @@ int restored_force_tick_exp()
     con = query_attr("con");
     cps = query_attr("cps");
     ib = query_attr("int") / 7;
+    if( ib < 1 ) ib = 1;    // 智力不足 7 只是沒有加成
     return (con > 0 ? random(con) : 0) + (cps > 0 ? random(cps) : 0) * ib;
 }
 
@@ -353,6 +399,7 @@ static mapping ATTR_GROWTH = ([
     "force":                "con",
     "dodge":                "dex",
     "parry":                "cps",
+    "sneak":                "dex",
     "spells":               "spi",
     "magic":                "spi",
     "backstab":             "cor",

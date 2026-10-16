@@ -9,6 +9,7 @@
 #include <command.h>
 #include <skill.h>
 #include <type.h>
+#include <daemon.h>
 
 inherit CHARACTER;
 inherit F_CLEAN_UP;     // Only to clean up master copy of NPCs.
@@ -16,7 +17,118 @@ inherit F_CLEAN_UP;     // Only to clean up master copy of NPCs.
 static mixed next_chat;
 static int last_scheduled_time_tag = 0;
 
+// NPC 強度（custom: NEW，見 /daemon/misc/npc_power.c）。
+static string power_tier;
+static int beast_strength;
+static mapping manual_attr = ([]), manual_stat = ([]);
+static int applying_power = 0;
+
+// NPC 基本技能（custom: NEW，見 /daemon/misc/npc_skill.c）。
+static mapping manual_skill = ([]), manual_map = ([]);
+
+void apply_npc_weapon_skills();
+
 int chat();
+
+// -----------------------
+// NPC 強度
+// -----------------------
+
+// set_power() : 設定 NPC 強度等級，"C"(雜兵)、"B"(一般)、"A"(菁英)、"S"(頭目)。
+// 要在 setup() 之前呼叫；setup() 時依種族、職業、等級自動算出屬性與精氣神。
+void set_power(string tier)
+{
+    string t;
+
+    if( !(t = NPC_POWER_D->normalize_tier(tier)) )
+        error("set_power: unknown power tier " + sprintf("%O", tier) + ".\n");
+    power_tier = t;
+}
+
+string query_power() { return power_tier; }
+
+// set_beast() : 野獸強度 1～10，數值表見 /daemon/race/beast.c。
+// 和 set_power() 一樣在 setup() 之前呼叫，setup() 完成後套用。
+void set_beast(int strength)
+{
+    if( strength < 1 || strength > 10 )
+        error("set_beast: strength must be 1 to 10.\n");
+    beast_strength = strength;
+}
+
+int query_beast() { return beast_strength; }
+
+// create() 裡手動指定的屬性與精氣神上限，強度計算時保留不覆蓋。
+int set_attr(string what, int value)
+{
+    if( !applying_power ) manual_attr[what] = 1;
+    return ::set_attr(what, value);
+}
+
+int set_stat_maximum(string what, int val)
+{
+    if( !applying_power ) manual_stat[what] = 1;
+    return ::set_stat_maximum(what, val);
+}
+
+// create() 裡手動指定的技能與技能對應，自動技能計算時保留不覆蓋。
+void set_skill(string skill, int val)
+{
+    if( !applying_power ) manual_skill[skill] = 1;
+    ::set_skill(skill, val);
+}
+
+varargs void map_skill(string skill, string mapped_to)
+{
+    if( !applying_power ) manual_map[skill] = 1;
+    ::map_skill(skill, mapped_to);
+}
+
+// 軍人 NPC 在戰鬥中使用狂擊亂鬥之法（狂擊技能由系統自動給的才加；
+// 手動寫了 berserk 的 NPC 自己安排戰鬥動作）。沒有自訂戰鬥動作時以 30% 機率施展；
+// 已有戰鬥動作的，把狂擊加進去，機率沿用原設定。
+private void add_berserk_action()
+{
+    mixed *msg;
+
+    if( query_class() != "soldier" || manual_skill["berserk"] ) return;
+    if( query_skill("berserk", 1) < 1 ) return;
+    if( !arrayp(msg = query("chat_msg_combat")) ) msg = ({ });
+    set("chat_msg_combat", msg + ({ (: command, "berserk" :) }));
+    if( !query("chat_chance_combat") ) set("chat_chance_combat", 30);
+}
+
+// 武器在 setup() 之後才拿上手，所以武器技能晚一步補。
+void apply_npc_weapon_skills()
+{
+    if( !this_object() || !power_tier ) return;
+    applying_power = 1;
+    NPC_SKILL_D->apply_weapon_skills(this_object(), manual_skill);
+    applying_power = 0;
+}
+
+void setup()
+{
+    if( power_tier && clonep(this_object()) ) {
+        // 與 CHAR_D->setup_char() 相同的預設值，確保種族初始化已經完成。
+        if( !query_race() ) set_race("human");
+        if( !query_class() ) set_class("commoner");
+        if( !query_level() ) set_level(1);
+
+        applying_power = 1;
+        NPC_POWER_D->apply_power(this_object(), power_tier, manual_attr, manual_stat);
+        NPC_SKILL_D->apply_skills(this_object(), manual_skill, manual_map);
+        applying_power = 0;
+        add_berserk_action();
+        call_out("apply_npc_weapon_skills", 0);
+    }
+    ::setup();
+    if( beast_strength ) {
+        applying_power = 1;
+        RACE_D("beast")->set_strength(this_object(), beast_strength);
+        applying_power = 0;
+    }
+}
 
 static void
 heart_beat()

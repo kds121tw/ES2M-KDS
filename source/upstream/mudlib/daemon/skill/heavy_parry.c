@@ -70,13 +70,3 @@ void skill_advanced(object me, string skill)
     me->set("heavy_parry/growth_level", lv);
     for(done++; done <= lv; done++) level_reward(me, done);
 }
-
-int valid_enable(string usage)
-{
-    return 0;
-}
-
-string type()
-{
-    return "martial";
-}

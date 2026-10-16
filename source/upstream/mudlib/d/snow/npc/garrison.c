@@ -1,3 +1,5 @@
+// 會攔人前往野羊山的官兵，專屬於雪亭鎮山路（/d/snow/ngate）。
+// 其他地方要放官兵，請用不會攔人的 /obj/area/garrison。
 
 
 #include <npc.h>
@@ -7,22 +9,18 @@ inherit F_SOLDIER;
 void create()
 {
     set_name("官兵", ({ "garrison" }) );
-    set_attr("con", 19);
-    set_attr("str", 20);
     set_race("human");
-    set_class("commoner");
-    set_level(17);
+    set_class("soldier");
+    set_level(15);
 
     set_skill("twohanded sword", 60);
-    set_skill("parry", 60);
-    set_skill("unarmed", 50);
-    set_skill("dodge", 50);
     set_skill("blade", 50);
 
     set("long",
         "一位負責維護地方治安的官兵﹐他們受過相當的訓練﹐有時候\n"
         "也加入軍隊作戰。\n");
     set("vendetta_mark", "authority");
+    set_power("B");
     setup();
     carry_object( STOCK_ARMOR("cloth") )->wear();
     carry_object( STOCK_WEAPON("broadsword") )->wield();

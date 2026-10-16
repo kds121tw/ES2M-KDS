@@ -79,38 +79,15 @@ const bgColors = {40:'#090b0a',41:'#532020',42:'#1d4d2e',43:'#4e4219',44:'#1c315
 
 const contextTitle=document.getElementById('contextTitle');
 const contextBody=document.getElementById('contextBody');
+let contextState={room:'',people:[],items:[],combat:null,inventory:[]};
+let contextRoomScan=false;
+let chatParseBuffer='';
+// 聊天視窗（左側「聊天」開關）。頻道：閒聊、謠言、密語（tell/reply）、對談（say），
+// 其他頻道（系統、巫師、隊伍、幫派…）只在「全部」裡出現。
 const chatWindow=setupChatWindow({
   root:document.getElementById('chatWindow'),
   openButton:document.querySelector('[data-ui-chat]'),
 });
-let contextState={room:'',people:[],items:[],combat:null,inventory:[]};
-let contextRoomScan=false;
-let chatView='chat';
-let chatParseBuffer='';
-const chatMessages={chat:[],tell:[]};
-const CHAT_LOG_LIMIT=200;
-const contextChatLog=document.getElementById('contextChatLog');
-function renderChatLog(){
-  if(!contextChatLog)return;
-  const rows=chatMessages[chatView]||[];
-  contextChatLog.innerHTML=rows.length
-    ? rows.map(x=>`<div class="context-chat-message ${chatView==='tell'?'is-tell':'is-chat'}">${x.html}</div>`).join('')
-    : `<div class="context-chat-empty">尚無 ${chatView.toUpperCase()} 訊息。</div>`;
-  contextChatLog.scrollTop=contextChatLog.scrollHeight;
-}
-function setupChatTabs(){
-  for(const btn of document.querySelectorAll('.context-chat-tab[data-chat-tab]')){
-    btn.addEventListener('click',()=>{
-      chatView=btn.dataset.chatTab==='tell'?'tell':'chat';
-      for(const x of document.querySelectorAll('.context-chat-tab[data-chat-tab]')){
-        const on=x.dataset.chatTab===chatView;
-        x.classList.toggle('active',on);
-        x.setAttribute('aria-selected',on?'true':'false');
-      }
-      renderChatLog();
-    });
-  }
-}
 function extractChatMessage(plain){
   let text=String(plain||'').trim();
   if(!text)return null;
@@ -132,6 +109,7 @@ function extractChatMessage(plain){
   if(/回答你[：﹕:]/.test(text))return {kind:'tell',text};
   if(/^【謠言】/.test(text))return {kind:'rumor',text};
   if(/^[^\s【】：﹕:]{1,20}說道[：﹕:]/.test(text))return {kind:'say',text};
+  // 其他頻道：【系統】【巫師】【東方故事】【隊伍】【幫派名】… 只出現在「全部」。
   if(/^【[^】\s]{1,8}】\S/.test(text))return {kind:'other',text};
   return null;
 }
@@ -144,18 +122,12 @@ function captureChatMessages(raw){
     if(!plain)continue;
     const hit=extractChatMessage(plain);
     if(!hit)continue;
-    // Render normalized text rather than the whole transport line, otherwise a
-    // leading command prompt becomes part of the chat history.  CHAT/TELL have
-    // their own pane colors, so ANSI preservation is unnecessary here.
-    if(chatWindow)chatWindow.add(hit.kind,hit.text);
-    if(!chatMessages[hit.kind])chatMessages[hit.kind]=[];
-    chatMessages[hit.kind].push({html:esc(hit.text)});
-    if(chatMessages[hit.kind].length>CHAT_LOG_LIMIT)chatMessages[hit.kind].splice(0,chatMessages[hit.kind].length-CHAT_LOG_LIMIT);
-    if(chatView===hit.kind)renderChatLog();
+    // Record normalized text rather than the whole transport line, otherwise a
+    // leading command prompt becomes part of the chat history. Each channel has
+    // its own color in the chat window, so ANSI preservation is unnecessary here.
+    chatWindow.add(hit.kind,hit.text);
   }
 }
-setupChatTabs();
-renderChatLog();
 function escContext(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function combatStat(label,cur,max,sideKey){
   const pct=max>0?Math.max(0,Math.min(100,cur*100/max)):0;
@@ -380,13 +352,42 @@ function classifyLine(line){
   // 例如攻擊敘述含「擊中」、人物名稱含「受傷」，都不該因字面被染成紅色。
   return '';
 }
+// 伺服器在每段輸出前後都會送提示字元「> 」，並在它前後各帶一個換行。網頁有輸入框，
+// 提示字元不需要顯示；只拿掉「>」而留下那些換行，畫面就會多出一行行空白
+// （潛行、戰鬥這類每個心跳印一行的訊息最明顯）。這裡逐行處理：
+//   - \r\r\n、\r\n 都只算一次換行
+//   - 整行只有提示字元：連同它前面帶出的空行一起拿掉；正在等輸入的提示字元（在一段的最後）
+//     拿掉後，下一段開頭跟著它的那個換行也一併拿掉
+//   - 接在文字前面的「> 」只拿掉提示字元（前面有色碼的「> 」是內容，例如留言板的引文，不動）
+//   - 只有色碼、沒有文字的行接到下一行，不要佔成一個空行
+let promptPending=false;
+function isPromptOnly(line){return /^[ \t]*>[ \t]*$/.test(cleanText(line));}
 function compactGameOutput(s){
+  let text=String(s).replace(/\r+\n/g,'\n').replace(/\r/g,'');
+  if(promptPending&&text.startsWith('\n'))text=text.slice(1);
+  promptPending=false;
+  const lines=text.split('\n');
+  let partial=lines.pop();
+  const kept=[];
+  let carry='';   // 只有色碼的行，接到下一行前面
+  for(const raw of lines){
+    if(isPromptOnly(raw)){
+      if(kept.length&&kept[kept.length-1]==='')kept.pop();
+      continue;
+    }
+    let line=carry+raw.replace(/^[ \t]*>[ \t]+(?=\S)/,'');carry='';
+    if(!cleanText(line)&&/\x1b\[/.test(line)){carry=line;continue;}
+    kept.push(line);
+  }
+  if(isPromptOnly(partial)){
+    if(kept.length&&kept[kept.length-1]==='')kept.pop();
+    partial='';promptPending=true;
+  }else partial=partial.replace(/^[ \t]*>[ \t]+(?=\S)/,'');
+  partial=carry+partial;
+  let out=kept.length?kept.join('\n')+'\n'+partial:partial;
   // Keep deliberate paragraph spacing, but prevent MUD output from turning repeated
   // empty lines into large blank vertical gaps in the browser terminal.
-  let out=String(s).replace(/\r?\n(?:[ \t]*\r?\n){2,}/g,'\n\n');  // 連續空行縮成一行，但保留下一行開頭的空白（置中排版用）
-  // Once login is complete, the classic standalone MUD prompt is redundant because
-  // WebMUD already has a command input box. Remove it regardless of current room state.
-  if(welcomeStyled)out=out.replace(/(^|\r?\n)[ \t]*>[ \t]*(?=\r?\n|$)/g,'$1');
+  out=out.replace(/\n(?:[ \t]*\n){2,}/g,'\n\n');  // 連續空行縮成一行，但保留下一行開頭的空白（置中排版用）
   return out;
 }
 function renderChunk(s){
@@ -552,6 +553,7 @@ function pollHud(force=false,allowNoRoom=false){
   ws.send('webhud\r\n');
   if(allowNoRoom)hudBootstrapInFlight=true;
   if(hudResponseTimer)clearBg(hudResponseTimer);
+  // 背景計時：網頁不在最上層時也要準時放行排隊中的指令（觸發、計時器送出的指令也在這裡排隊）。
   hudResponseTimer=bgTimeout(()=>{
     hudResponseTimer=null;
     if(!hudPollInFlight)return;
@@ -997,9 +999,11 @@ function optimisticMapMove(command){
 
 
 
-let manualDisconnect=false;
+// #dis 主動斷線時不自動重連，等玩家 #con。
+let manualDisconnect=false,reconnectTimer=null;
 function connect(){
   if(ws&&[WebSocket.OPEN,WebSocket.CONNECTING].includes(ws.readyState))return;
+  manualDisconnect=false;if(reconnectTimer){clearBg(reconnectTimer);reconnectTimer=null;}
   conn.textContent='CONNECTING';const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}/mud`);ws.binaryType='arraybuffer';
   ws.onopen=()=>{
     // A TCP/WebSocket reconnect starts at the Neolith login object, not inside
@@ -1031,7 +1035,7 @@ function connect(){
       kickHudAfterServerText(forceMapRefresh);
     }
   };
-  ws.onclose=e=>{stopHudPolling();editorActive=false;if(mapBootstrapRetryTimer){clearTimeout(mapBootstrapRetryTimer);mapBootstrapRetryTimer=null;}pendingUserCommands=[];mapRefreshPending=false;hudBootstrapInFlight=false;hudBootstrapAttempts=0;currentRoomId=null;runtimeSnapshot=null;tail='';sessionRecorder.finishResponse();sessionRecorder.markTransportClose(e?.code??null,e?.reason||'');sessionRecorder.markReconnect();conn.textContent='DISCONNECTED';if(manualDisconnect||!started)return;const wait=Math.min(10000,1000*2**Math.min(retry++,3));print(`\n[${wait/1000} 秒後重新連線]\n`,true);bgTimeout(connect,wait);};
+  ws.onclose=e=>{stopHudPolling();editorActive=false;if(mapBootstrapRetryTimer){clearTimeout(mapBootstrapRetryTimer);mapBootstrapRetryTimer=null;}pendingUserCommands=[];mapRefreshPending=false;hudBootstrapInFlight=false;hudBootstrapAttempts=0;currentRoomId=null;runtimeSnapshot=null;tail='';sessionRecorder.finishResponse();sessionRecorder.markTransportClose(e?.code??null,e?.reason||'');sessionRecorder.markReconnect();conn.textContent='DISCONNECTED';if(manualDisconnect){print('\n[已中斷連線，輸入 #con 重新連線]\n',true);return;}automation.cancelPending();if(!started)return;const wait=Math.min(10000,1000*2**Math.min(retry++,3));print(`\n[${wait/1000} 秒後重新連線]\n`,true);reconnectTimer=bgTimeout(()=>{reconnectTimer=null;connect();},wait);};
   ws.onerror=()=>conn.textContent='ERROR';
 }
 // Echo the player's own command into the transcript as its own line, the
@@ -1050,7 +1054,7 @@ let pendingTrimLeadingBlank=false;
 function echoCommand(c){
   if(!c)return;
   const stick=shouldStick();
-  appendTerminalHtml(`<span class="cmd">&gt; ${esc(c)}</span><br>`,true);
+  appendTerminalHtml(`<span class="cmd">${esc(c)}</span><br>`,true);
   trimTerminal(stick);
   pendingTrimLeadingBlank=true;
   if(stick)scheduleStickScroll();
@@ -1075,9 +1079,12 @@ function flushPendingUserCommands(){
   pendingUserCommands=[];
   for(const item of queued)transmitUserCommand(item.command,item.sensitive);
 }
-function send(c,keepSpaces=false){
-  const sensitive=input.type==='password';
-  // 留言／寫信的編輯器裡，每行前面的空白（半形、全形）是內容的一部分，不能去掉。
+// auto：觸發或計時器送出的指令。和玩家打的指令一樣顯示在畫面上（同樣顏色），
+// 只是不會被當成密碼輸入（輸入密碼時本來就不會自動送）。
+// 送到伺服器的方式和玩家打字完全相同，所以也會讓角色的發呆時間歸零。
+// keepSpaces：留言／寫信的編輯器裡，每行前面的空白（半形、全形）是內容的一部分，不能去掉。
+function send(c,{auto=false,keepSpaces=false}={}){
+  const sensitive=!auto&&input.type==='password';
   c=keepSpaces?String(c??'').replace(/[\r\n]+/g,''):String(c??'').trim();
   if(c){lastUserCommandAt=Date.now();if(hudKickTimer){clearTimeout(hudKickTimer);hudKickTimer=null;}}
   if(ws?.readyState!==1){print('\n[尚未連上 ES2]\n',true);return;}
@@ -1104,17 +1111,18 @@ function send(c,keepSpaces=false){
 
 // 觸發與計時器（設定存在瀏覽器）。輸入密碼、編輯文章或沒連線時不自動送指令。
 const automation=new Automation({
-  sendCommand:c=>send(c,false),
-  sendUserCommand:c=>send(c,true),
+  sendCommand:c=>send(c,{auto:true}),
+  sendUserCommand:c=>send(c),
   notify:m=>print(`\n${m}\n`,true),
   isBlocked:()=>input.type==='password'||editorActive||ws?.readyState!==1,
   disconnect:()=>{
+    if(reconnectTimer){clearBg(reconnectTimer);reconnectTimer=null;manualDisconnect=true;print('\n[已取消自動重連，輸入 #con 重新連線]\n',true);return true;}
     if(!ws||![WebSocket.OPEN,WebSocket.CONNECTING].includes(ws.readyState))return false;
     manualDisconnect=true;ws.close();return true;
   },
   connect:()=>{
     if(ws&&[WebSocket.OPEN,WebSocket.CONNECTING].includes(ws.readyState))return false;
-    manualDisconnect=false;connect();return true;
+    retry=0;connect();return true;
   },
 });
 setupAutomationUI(automation,{
@@ -1123,12 +1131,11 @@ setupAutomationUI(automation,{
   openButtons:[...document.querySelectorAll('[data-ui-automation]')].map(b=>[b,b.dataset.uiAutomation]),
 });
 
-
 // 打開網頁就直接連線（不再顯示封面）。
 async function startGame(){
   if(started)return;
   started=true;gameApp.hidden=false;input.focus();
-  keepPageAlive(); // 背景掛機時避免瀏覽器凍結分頁
+  keepPageAlive(); // 掛機：請瀏覽器不要凍結背景中的分頁
   await loadGraph();connect();
 }
 // Set once the box holds a "kept" command (see #form submit below) so a bare
@@ -1153,22 +1160,15 @@ document.querySelector('#form')?.addEventListener('submit',e=>{
   }
   if(editorActive){
     // 編輯器裡一行就是一行內容：保留前面的空白、不拆「;」、不留在欄位裡重複送。
-    send(raw,true);input.value='';repeatArmed=false;input.focus();return;
+    send(raw,{keepSpaces:true});input.value='';repeatArmed=false;input.focus();return;
   }
   // ';' chains several commands from one line, e.g. "e;e;e;n" walks east
-  // three times then north. No inter-command delay -- fired back to back.
+  // three times then north. No inter-command delay unless the line uses
+  // #wa (zMUD-style wait). At most 9 real commands per submit -- roughly what
+  // a tick should hold; local # commands (#wa, #tr, #sh ...) don't count.
+  // #3 e repeats, #dis/#con disconnect/reconnect -- see automation.js.
   rememberCommand(raw);hi=history.length;historyPrefix=null;
-  let parts=raw.includes(';')?raw.split(';').map(s=>s.trim()).filter(s=>s.length):[raw];
-  if(!parts.length)parts.push('');
-  // Cap at 9 actions per submit -- roughly what a tick should hold -- so a
-  // long ';' chain can't dump an unbounded burst of actions into one instant.
-  // Only the first 9 run; the rest are silently dropped with a local notice.
-  const MAX_CHAIN_COMMANDS=9;
-  if(parts.length>MAX_CHAIN_COMMANDS){
-    parts=parts.slice(0,MAX_CHAIN_COMMANDS);
-    print('\n你的動作太快了...\n',true);
-  }
-  for(const part of parts)send(part);
+  automation.run(raw,'輸入欄',{user:true});
   // Keep the line in the box (selected, not cleared) so a bare Enter repeats
   // it -- handy for walking a corridor by holding Enter -- while typing
   // anything just overwrites the selection like normal.
@@ -1203,23 +1203,13 @@ document.querySelector('#form')?.addEventListener('click',e=>{
 });
 document.querySelectorAll('[data-cmd]').forEach(b=>b.addEventListener('click',()=>{send(b.dataset.cmd);input.focus();}));
 
-document.querySelectorAll('[data-ui-focus]').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x===b));
-  const target=b.dataset.uiFocus==='map'?document.querySelector('#mapPanel'):document.querySelector('#chatPanel');
-  if(target){target.scrollIntoView({behavior:'smooth',block:'nearest'});target.classList.remove('ui-focus-flash');requestAnimationFrame(()=>target.classList.add('ui-focus-flash'));}
-  input.focus();
-}));
-document.querySelectorAll('.nav-item[data-cmd]').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x===b));
-}));
 document.querySelector('[data-ui-settings]')?.addEventListener('click',()=>document.querySelector('#uiSettings')?.showModal());
 document.querySelectorAll('[data-map-action]').forEach(b=>b.addEventListener('click',()=>{
   const a=b.dataset.mapAction;if(a==='in')setMapZoom(mapZoom+.12);else if(a==='out')setMapZoom(mapZoom-.12);else setMapZoom(1);
 }));
 const fontRange=document.querySelector('#terminalFontSize'),fontValue=document.querySelector('#terminalFontValue');
 fontRange?.addEventListener('input',()=>{document.documentElement.style.setProperty('--terminal-font-size',fontRange.value+'px');if(fontValue)fontValue.textContent=fontRange.value+'px';localStorage.setItem('es2-ui-font',fontRange.value);});
-const compactToggle=document.querySelector('#compactContext');compactToggle?.addEventListener('change',()=>{document.body.classList.toggle('context-compact',compactToggle.checked);localStorage.setItem('es2-ui-compact',compactToggle.checked?'1':'0');});
-try{const f=localStorage.getItem('es2-ui-font');if(f&&fontRange){fontRange.value=f;document.documentElement.style.setProperty('--terminal-font-size',f+'px');if(fontValue)fontValue.textContent=f+'px';}const c=localStorage.getItem('es2-ui-compact')==='1';if(compactToggle){compactToggle.checked=c;document.body.classList.toggle('context-compact',c);}}catch(_){}
+try{const f=localStorage.getItem('es2-ui-font');if(f&&fontRange){fontRange.value=f;document.documentElement.style.setProperty('--terminal-font-size',f+'px');if(fontValue)fontValue.textContent=f+'px';}}catch(_){}
 
 
 
@@ -1234,8 +1224,7 @@ async function bootPreviewMode(){
   setRoomMapMeta('/preview/main','雪亭','地面','');setExactRoom('/preview/main','中央大街');
   observer.state.vitals={hp:{current:176,limit:210},jing:{current:1296,limit:1296},qi:{current:1738,limit:1738},shen:{current:449,limit:449},food:{current:303,limit:551},water:{current:261,limit:429},fatigue:{current:0,limit:100}};observer.state.score={level:15};renderObserved();
   term.innerHTML='<span class="room-line">【雪亭・中央大街】</span><br>這是一條寬闊的青石大街，兩旁店舖林立，遠處可見城門與屋脊。<br><br><span class="exit-line">出口：北、南、東、西</span><br><br>一名往來的行人從街角走過。<br><br><span class="cmd">&gt; look</span><br>你仔細觀察四周，風裡帶著炊煙與木香。';
-  document.querySelector('#contextTitle').textContent='中央大街';document.querySelector('#contextBody').innerHTML='<div class="context-line context-person">行人</div><div class="context-line context-item">街邊招牌</div><div class="context-line">東：錢莊　西：客棧　北：武館</div>';
-  document.querySelector('#contextChatLog').innerHTML='<div class="context-line"><b>[CHAT]</b> 測試玩家：新版介面預覽。</div>';
+  chatWindow.add('chat','【閒聊】測試玩家﹕新版介面預覽。');
   return true;
 }
 bootPreviewMode().then(()=>startGame());

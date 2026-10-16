@@ -15,19 +15,16 @@ void create()
     set("title", "虎刀門長老");
     set_race("human");
     set("gender", "male");
-    set_class("fighter");
+    set_class("fighter"); set_level(30);
 
     /* User-provided legacy teacher table: teaching ceilings. */
-    set_skill("unarmed", 120);
-    set_skill("parry", 120);
-    set_skill("dodge", 120);
     set_skill("tiger-steps", 120);
-    set_skill("sanmeendo", 140);
+    set_skill("ksanmando", 140);
     set_skill("blade", 120);
     set_skill("twohanded blade", 120);
     set_skill("secondhand blade", 120);
     set_skill("force", 120);
-    set_skill("tiger-force", 120);
+    set_skill("tiger force", 120);
     set_skill("tiger-blade", 140);
     set("long",
         "高慎是季縣虎刀門的耆宿，雖已年逾七旬，身形仍顯得十分硬朗。\n"
@@ -39,6 +36,8 @@ void create()
         "高慎負手望著林間小路，冷哼一聲，神情頗為不耐。\n",
         "高慎伸手按了按腰間刀鞘，目光銳利地打量四周。\n",
     }));
+    set("custom_faction", "fighter.tiger");   // 門派記號（docs/CUSTOM_NPC_SKILL.md）
+    set_power("B");
     setup();
 }
 
@@ -93,7 +92,7 @@ int acquire_skill(object me, string skill)
     case "parry": cap = 1; break;
     case "dodge": cap = 1; break;
     case "tiger-steps": cap = 1; break;
-    case "sanmeendo": cap = 1; break;
+    case "ksanmando": cap = 1; break;
     case "blade": cap = 1; break;
     case "twohanded blade": cap = 1; break;
     case "secondhand blade": cap = 1; break;
@@ -102,14 +101,14 @@ int acquire_skill(object me, string skill)
             return notify_fail("高慎搖頭道：你根基未穩，還是多練練吧。\n");
         cap = 1;
         break;
-    case "tiger-force":
+    case "tiger force":
         if( me->query_level() < 15 )
             return notify_fail("高慎搖頭道：你根基未穩，還是多練練吧。\n");
         cap = 1;
         break;
     case "tiger-blade":
-        if( me->query_skill("tiger-force", 1) < 30 )
-            return notify_fail("高慎喝道：瘋虎功不到三十級，也敢妄學瘋虎刀法？\n");
+        if( me->query_skill("tiger force", 1) < 30 )
+            return notify_fail("高慎喝道：你的瘋虎功火候未到，也敢妄學瘋虎刀法？\n");
         cap = 1;
         break;
     default:
@@ -117,13 +116,13 @@ int acquire_skill(object me, string skill)
     }
 
     /* 只傳授入門：累積點數還不到 1 級的門檻才教，一次補足到門檻。
-     * 等級要玩家下 gain 才會提升；瘋虎功要自己修習到 20 級的門檻才練成。 */
+     * 等級要玩家下 gain 才會提升；瘋虎功要自己修習到 15 級的門檻（10000 點）才練成。 */
     if( me->query_learn(skill) >= me->skill_threshold(skill, cap) )
         return notify_fail("高慎說道：滾你奶奶的! 自己好好修練去!\n");
 
     me->improve_skill_exact(skill,
         me->skill_threshold(skill, cap) - me->query_learn(skill));
-    if( skill == "tiger-force" )
+    if( skill == "tiger force" )
         tell_object(me, "高慎將瘋虎功的入門心訣傳授給你，接下來就得靠你自己運功修習了。\n");
     else
         tell_object(me, "高慎將「" + to_chinese(skill) + "」的入門要訣傳授給你。\n");

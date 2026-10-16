@@ -105,7 +105,6 @@ int try_level_up()
     return 1;
 }
 
-
 int query_target_score(string course)
 {
     return query("target_score/" + course);

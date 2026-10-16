@@ -11,15 +11,8 @@ void create()
     set_level(30);
 
     // Race initialization fills every attribute not specified here.
-    set_attr("con", 30);
-    set_attr("wis", 25);
-    set_attr("spi", 30);
-    set_stat_maximum("gin", 500);
-    set_stat_maximum("kee", 600);
-    set_stat_maximum("sen", 800);
 
     set_skill("taoism-storm", 160);
-    set_skill("spells", 160);
     map_skill("spells", "taoism-storm");
 
     set("long", "這名玄衣派弟子精通天師道法【風符】，手持長劍，身穿布衣。\n");
@@ -31,6 +24,8 @@ void create()
         (: command, "cast 4" :)
     }));
 
+    set("custom_faction", "taoist.storm");   // 門派記號（docs/martial_arts/門派武功對照表.md）
+    set_power("B");
     setup();
     carry_object("/obj/area/obj/cloth")->wear();
     carry_object("/obj/area/obj/longsword")->wield();
