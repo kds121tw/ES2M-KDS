@@ -406,6 +406,7 @@ static mapping ATTR_GROWTH = ([
     "killerhood":           "cor",
     "literate":             "int",
     "archaic attainment":   "int",
+    "absorption":           "wis",
 ]);
 
 private int attr_growth_base(int value)
@@ -442,6 +443,21 @@ private void roll_attr_growth(string skill, int old_level, int new_level)
                    "cps": "定力", "dex": "機敏", "con": "根骨", "wis": "慧根" ])[attr];
         tell_object(this_object(), HIY "你的" + (cname ? cname : attr) + "提高了！\n" NOR);
     }
+}
+
+/* 法術道行（使用者定案，2026-10-16）：可 enable 在法術（magic）上的特殊技能，
+ * 每升到第 n 級給 n×10 法術道行。只對玩家生效。 */
+private void magic_mastery_growth(string skill, int old_level, int new_level)
+{
+    object daemon;
+    int lv;
+
+    if( !userp(this_object()) || skill == "magic" ) return;
+    daemon = SKILL_D(skill);
+    if( !objectp(daemon) || !function_exists("valid_enable", daemon) ) return;
+    if( !daemon->valid_enable("magic") ) return;
+    for(lv = old_level + 1; lv <= new_level; lv++)
+        this_object()->gain_score("magic mastery", lv * 10);
 }
 
 /* 基本技能升級給武術造詣（NEW）
@@ -487,6 +503,7 @@ varargs void advance_skill(string skill, int amount)
     if( skills[skill] > 200 ) skills[skill] = 200;
 
     SKILL_D(skill)->skill_advanced(this_object(), skill);
+    magic_mastery_growth(skill, old_level, skills[skill]);
     roll_attr_growth(skill, old_level, skills[skill]);
     basic_skill_martial_art(skill, old_level, skills[skill]);
 
