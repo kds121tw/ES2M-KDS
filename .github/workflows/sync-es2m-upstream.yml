@@ -1,0 +1,56 @@
+name: Sync ES2M source backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 2 * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/sync-es2m-upstream.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: es2m-upstream-backup
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ES2M-KDS backup repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch read-only ES2M source
+        run: |
+          git remote add es2m https://github.com/wolfer168/es2-webmud.git
+          git fetch --no-tags es2m main
+          echo "ES2M_SOURCE_SHA=$(git rev-parse es2m/main)" >> "$GITHUB_ENV"
+
+      - name: Mirror complete ES2M source snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/es2m-snapshot"
+          git archive es2m/main | tar -x -C "$RUNNER_TEMP/es2m-snapshot"
+          rsync -a --delete \
+            --exclude='/.git/' \
+            --exclude='/.github/workflows/sync-es2m-upstream.yml' \
+            "$RUNNER_TEMP/es2m-snapshot/" ./
+
+      - name: Commit backup only when source changed
+        run: |
+          set -euo pipefail
+          git add -A
+          if git diff --cached --quiet; then
+            echo "ES2M-KDS already matches ES2M source snapshot."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "backup: sync full ES2M main snapshot ${ES2M_SOURCE_SHA}"
+          git push origin HEAD:main
