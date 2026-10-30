@@ -1,6 +1,6 @@
 # 舊站 NPC 清單（custom/legacy_npc/）
 
-> 依使用者提供的「舊有 NPC 待製作清單」（2026-10-15）製作，共 126 位，**尚未放入地圖**。
+> 依使用者提供的「舊有 NPC 待製作清單」（2026-10-15）製作，共 126 位，**尚未放入地圖**（武道通例外：2026-10-27 暫放雪亭鎮廣場北邊，在雪亭鎮巡邏）。
 > 名稱、英文 ID、敘述、年紀、性別、種族、裝備取自舊站畫面紀錄（`docs/LEGACY_ROOM_NPC_COMPENDIUM.md`，DOCUMENTED）；
 > 職業、等級、強度、門派、行為由使用者決定。屬性與精氣神由 NPC 強度系統計算（`docs/CUSTOM_NPC_POWER.md`），
 > 技能由 NPC 自動技能系統依職業、等級、門派給（`docs/CUSTOM_NPC_SKILL.md`）。
@@ -101,7 +101,7 @@
 | 77 | 李儒 | Li ru | `custom/legacy_npc/li_ru.c` | 柳家／民宅 | 人類 | 書生 | 20 | B | — | — |
 | 78 | 劉開 | Liu kei | `custom/legacy_npc/liu_kei.c` | 檒城／街道 | 人類 | 軍人 | 30 | B | — | — |
 | 79 | 駱易 | Ro yi | `custom/legacy_npc/ro_yi.c` | 步玄派／— | 人類 | 書生 | 65 | S | 步玄派（未列入對照表） | — |
-| 80 | 武道通 | Wu dauton | `custom/legacy_npc/wu_dauton.c` | 武陀灸堂／武陀灸堂 | 人類 | 方士 | 60 | S | 武陀灸堂（未列入對照表） | — |
+| 80 | 武道通 | Wu dauton | `custom/legacy_npc/wu_dauton.c` | 武陀灸堂／武陀灸堂 | 人類 | 方士 | 60 | S | 武陀灸堂（`alchemist.wuto`） | 巡邏（暫放雪亭鎮廣場北邊） |
 | 81 | 張小簽 | Zhang xiao qian | `custom/legacy_npc/zhang_xiao_qian.c` | 水嵐縣／街道 | 人類 | 平民 | 1 | C | — | — |
 | 82 | 白劍飛 | Bai jian fei | `custom/legacy_npc/bai_jian_fei.c` | 漕幫／小船 | 夜叉族 | 武者 | 25 | B | 封山派（`fighter.fonxan`） | — |
 | 83 | 蕭尹 | Xiao yin | `custom/legacy_npc/xiao_yin.c` | 漕幫／房間內 | 人類 | 武者 | 45 | A | — | — |
@@ -116,7 +116,7 @@
 | 92 | 晏訌 | Yen hong | `custom/legacy_npc/yen_hong.c` | 老劍山／客房 | 人類 | 武者 | 20 | B | — | — |
 | 93 | 公孫志 | Gong-sun zhi | `custom/legacy_npc/gong_sun_zhi.c` | 茅山、丱天樹／紅燈客棧 | 人類 | 道士 | 20 | B | — | — |
 | 94 | 土伯 | Guard of hell | `custom/legacy_npc/guard_of_hell.c` | 茅山／茅山石陣 | 形天族 | 武者 | 30 | B | — | — |
-| 95 | 杜風凌 | Du feng ling | `custom/legacy_npc/du_feng_ling.c` | 茅山、龍安鎮／客棧 | 巫首族 | 道士 | 40 | A | — | — |
+| 95 | 杜風凌 | Du feng ling | `custom/legacy_npc/du_feng_ling.c` | 茅山、李家村／小旅店 | 巫首族 | 道士 | 40 | A | — | — |
 | 96 | 查思古禮 | Chaxigol | `custom/legacy_npc/chaxigol.c` | 茅山／大街 | 人類 | 武者 | 25 | B | — | — |
 | 97 | 歐陽無寂 | Ou-yan wu ji | `custom/legacy_npc/ou_yan_wu_ji.c` | 茅山／客房內 | 人類 | 道士 | 30 | B | — | — |
 | 98 | 歐陽無極 | Ou-yan wu ji | `custom/legacy_npc/ou_yan_wu_ji_2.c` | 茅山、康平村／小客店 | 人類 | 道士 | 40 | A | — | — |
